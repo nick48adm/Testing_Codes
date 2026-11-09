@@ -125,6 +125,21 @@ services:
     networks:
       - app-net
       - infra-net
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1   # or latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
 
 networks:
   app-net:
