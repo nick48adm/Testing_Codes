@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notes App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: 1.5rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%; padding: 0.6rem; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 0.75rem; }
+    textarea { min-height: 80px; resize: vertical; }
+    button { background: #2563eb; color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    .note { border: 1px solid #e5e7eb; border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; }
+    .note h3 { margin-bottom: 0.25rem; }
+    .note-actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    .hidden { display: none; }
+    #auth-section { text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Notes App</h1>
+
+    <!-- Auth -->
+    <div id="auth-section" class="card">
+      <h2 id="auth-title">Login</h2>
+      <input type="email" id="auth-email" placeholder="Email" />
+      <input type="password" id="auth-password" placeholder="Password" />
+      <button onclick="handleAuth()" id="auth-btn">Login</button>
+      <p style="margin-top:0.75rem;font-size:0.9rem;color:#666;">
+        <a href="#" onclick="toggleAuthMode()" id="auth-toggle">Need an account? Register</a>
+      </p>
+      <p id="auth-error" style="color:#dc2626;margin-top:0.5rem;"></p>
+    </div>
+
+    <!-- Notes -->
+    <div id="notes-section" class="hidden">
+      <div class="card">
+        <h2>Create Note</h2>
+        <input type="text" id="note-title" placeholder="Title" />
+        <textarea id="note-content" placeholder="Content"></textarea>
+        <button onclick="createNote()">Add Note</button>
+        <button class="danger" onclick="logout()" style="float:right;">Logout</button>
+      </div>
+      <div id="notes-list"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = '/api';
+    let token = localStorage.getItem('token');
+    let isRegister = false;
+
+    if (token) showNotes();
+
+    function toggleAuthMode() {
+      isRegister = !isRegister;
+      document.getElementById('auth-title').textContent = isRegister ? 'Register' : 'Login';
+      document.getElementById('auth-btn').textContent = isRegister ? 'Register' : 'Login';
+      document.getElementById('auth-toggle').textContent = isRegister
+        ? 'Already have an account? Login'
+        : 'Need an account? Register';
+      document.getElementById('auth-error').textContent = '';
+    }
+
+    async function handleAuth() {
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const errEl = document.getElementById('auth-error');
+      errEl.textContent = '';
+      if (!email || !password) return (errEl.textContent = 'Email and password required');
+
+      const endpoint = isRegister ? '/auth/register' : '/auth/login';
+      try {
+        const res = await fetch(API + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        token = data.token;
+        localStorage.setItem('token', token);
+        showNotes();
+      } catch (e) {
+        errEl.textContent = e.message;
+      }
+    }
+
+    function logout() {
+      token = null;
+      localStorage.removeItem('token');
+      document.getElementById('notes-section').classList.add('hidden');
+      document.getElementById('auth-section').classList.remove('hidden');
+    }
+
+    async function showNotes() {
+      document.getElementById('auth-section').classList.add('hidden');
+      document.getElementById('notes-section').classList.remove('hidden');
+      await loadNotes();
+    }
+
+    async function loadNotes() {
+      const res = await fetch(API + '/notes', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (!res.ok) return logout();
+      const notes = await res.json();
+      const list = document.getElementById('notes-list');
+      list.innerHTML = notes.length
+        ? notes.map((n) => `
+          <div class="note">
+            <h3>${escapeHtml(n.title)}</h3>
+            <p>${escapeHtml(n.content || '')}</p>
+            <div class="note-actions">
+              <button onclick="editNote(${n.id}, '${escapeHtml(n.title)}', '${escapeHtml(n.content || '')}')">Edit</button>
+              <button class="danger" onclick="deleteNote(${n.id})">Delete</button>
+            </div>
+          </div>
+        `).join('')
+        : '<p style="color:#666;">No notes yet.</p>';
+    }
+
+    async function createNote() {
+      const title = document.getElementById('note-title').value.trim();
+      const content = document.getElementById('note-content').value;
+      if (!title) return alert('Title required');
+      const res = await fetch(API + '/notes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify({ title, content }),
+      });
+      if (res.ok) {
+        document.getElementById('note-title').value = '';
+        document.getElementById('note-content').value = '';
+        loadNotes();
+      }
+    }
+
+    async function deleteNote(id) {
+      if (!confirm('Delete this note?')) return;
+      await fetch(API + '/notes/' + id, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      loadNotes();
+    }
+
+    async function editNote(id, oldTitle, oldContent) {
+      const title = prompt('Edit title', oldTitle);
+      if (title === null) return;
+      const content = prompt('Edit content', oldContent);
+      if (content === null) return;
+      await fetch(API + '/notes/' + id, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify({ title, content }),
+      });
+      loadNotes();
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+  </script>
+</body>
+</html>
